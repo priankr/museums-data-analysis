@@ -1,0 +1,315 @@
+---
+title: "Museums Data Analysis"
+output: html_notebook
+---
+Analysis of a public United States Museums dataset from Kaggle: https://www.kaggle.com/imls/museum-directory
+
+The museum dataset is a list of museums and related organizations in the United States. The data file includes basic information about each organization (name, address, phone, website, and revenue) plus the museum type or discipline. 
+
+We are interested in extracting some insights about museums in the US, such as 
+- Which city or state has the most museums per capita? 
+- How many zoos or aquariums exist in the United States? 
+- What museum or related organization had the highest revenue last year?
+- How does the composition of museum types differ across the country?
+
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(gghighlight)
+
+#Importing the csv file to a books Data Frame
+museum_data <- read.csv("museums.csv")
+
+#Viewing the Data Frame
+head(museum_data )
+```
+# Data Cleaning and Preparation
+In this stage the data is checked for accuracy and completeness prior to beginning the analysis. Some of the issues addressed are as follows:
+
+- Remove extraneous data
+- Check for in missing values
+- Replace missing values
+- Delete data that cannot be corrected/replaced
+- Correct any data formatting issues
+- Creating new features
+- Identify errors revealed when new variables are created
+
+## Remove Extraneous Data
+
+```{r}
+#Identifying the column names
+colnames(museum_data)
+```
+There are a lot of columns in the dataframe, however not all of them are useful. Therefore, we will only select a subset of the dataframe containing the columns we are interested in.
+
+```{r}
+#Creating a character vector with all the columns names we are interested in
+keep_col <- c("Museum.ID","Legal.Name","Museum.Type","City..Administrative.Location.","State..Administrative.Location.","Zip.Code..Administrative.Location.","Income","Revenue"   )
+
+museum <-museum_data[keep_col]
+
+head(museum)
+```
+
+## Missing Values
+```{r}
+#Identifying total number of missing values
+sum(is.na(museum))
+```
+There are a significant number of missing values. Let's check which columns have missing values 
+```{r}
+#Identifying total number of missing values
+summary(museum)
+```
+
+As seen above the Income and Revenue Columns have missing values. These columns also seem to have negative values, which we have to correct. As we do not have a way to accurately replace the missing data we will be dropping the associated rows. 
+
+### Dropping Rows with Missing Values
+```{r}
+#Removing rows with missing data
+#The complete.cases() function will examine a dataframe and return a result vector of the rows which contain missing values.
+museum <- na.omit(museum)
+
+#Checking for any remaining missing values
+sum(is.na(museum))
+```
+There are no more missing values.
+
+## Correcting Formatting Issues
+Income and Revenue Columns have negative values. The negative values could represent two scenarios:
+- Museums are operating at a loss, which accounts for the negative income and negative revenue.
+- Error in the data input process which resulted in a negative value being entered. 
+
+In the absence of specific context, we do not know how or if these values need to be corrected. Therefore, we will assume that these negative values represent inaccurate entries and we will be dropping these values. 
+
+```{r}
+#Removing all rows with income and revenue less than 0
+museum <- museum %>% filter((Income >= 0) & (Revenue >= 0))
+
+summary(museum)
+```
+
+
+## Duplicate Data 
+```{r}
+#Number of Museum/Institution Names in the dataframe
+length(museum$Legal.Name)
+#Number of unique Museum/Institution Names in the dataframe
+length(unique(museum$Legal.Name))
+
+```
+
+As we see here, there are clearly some museum names that have been repeated.
+### Removing Duplicates 
+```{r}
+#Keeping only rows with distinct Legal.Name values
+museum <- museum %>% distinct(Legal.Name, .keep_all = TRUE)
+```
+
+# Exploratory Data Analysis
+In this stage, we will examine the data to identify any patterns, trends and relationships between the variables. It will help us analyze the data and extract insights that can be used to make decisions.
+
+Data Visualization will give us a clear idea of what the data means by giving it visual context.
+
+## Statistics
+To understand the museum data at a high level we can start be looking at income and revenue in more detail
+```{r}
+#Calculating average income, total income, average revenue and total revenue
+avg_inc = mean(museum$Income) 
+max_inc = max(museum$Income) 
+avg_rev = mean(museum$Revenue) 
+max_rev = max(museum$Revenue) 
+
+#Calculating number of museums with zero income and revenue
+zero_inc_rev <- museum %>% filter((Income == 0) & (Revenue == 0))
+
+cat('The average museum income:', avg_inc, ' and the highest museum income:', max_inc, '\nThe average museum revenue', avg_rev, ' and the highest revenue:', max_rev, '\nThe number of museums with no income and revenue are:', length(zero_inc_rev))
+```
+```{r}
+#Number of unique Museum Types, Cities and States
+length(unique(museum$Museum.Type))
+length(unique(museum$City..Administrative.Location.))
+length(unique(museum$State..Administrative.Location.))
+```
+We have museum data for museums of <b>9 Types</b>, located in <b>7236 Cities</b> across <b>51 States</b>.
+
+### Grouping Museum Data by Type, City and State
+We can create a few functions to help us aggregate the museum data and 
+```{r}
+#Creating a function to create a dataframe with aggregate data
+museum_group <- function(col_name) {
+  
+  #Grouping by col_name
+  group_name <- museum %>% group_by(.dots = col_name)
+  
+  #Creating a data frame to store the summarized values of museums by col_name
+  #tally() gives us a count of how many museums belong to the category
+  museum_group_name <- group_name %>% tally()
+  
+  #Renaming the columns
+  colnames(museum_group_name)[which(names(museum_group_name) == "n")] <- "Museum_Count"
+  
+  #Summarizing by average income
+  group_name_average_income <- group_name %>% summarise(Income = mean(Income))
+  museum_group_name$Average_Income<- group_name_average_income$Income
+  
+  #Summarizing by total income
+  group_name_total_income <- group_name %>% summarise(Income = sum(Income))
+  museum_group_name$Total_Income<- group_name_total_income$Income
+  
+  #Summarizing by average revenue
+  group_name_average_revenue <- group_name %>% summarise(Revenue = mean(Revenue))
+  museum_group_name$Average_Revenue<- group_name_average_revenue$Revenue
+  
+  #Summarizing by total revenue
+  group_name_total_revenue <- group_name %>% summarise(Revenue = sum(Revenue))
+  museum_group_name$Total_Revenue<- group_name_total_revenue$Revenue
+  
+  #Returning a dataframe
+  return (museum_group_name)
+}
+
+#Creating a function to output maximum values from the dataframe with aggregate data
+museum_group_max <- function(df,col_name) {
+    
+  avg_inc_max <- df %>% filter(Average_Income == max(df$Average_Income))
+  tot_inc_max <- df %>% filter(Total_Income == max(df$Total_Income))
+  avg_rev_max <- df %>% filter(Average_Revenue == max(df$Average_Revenue))
+  tot_rev_max <- df %>% filter(Total_Revenue == max(df$Total_Revenue))
+  
+  #Calculating the highest museum count and associated col_name value
+  count_max <- df %>% filter(Museum_Count == max(df$Museum_Count))
+  
+  return (cat('Museum Types with highest average income:', avg_inc_max[[col_name]], ' highest total income:', tot_inc_max[[col_name]], '\nhighest average revenue', avg_rev_max[[col_name]], ' highest total revenue:',tot_rev_max[[col_name]], '\n\n', count_max[[col_name]], 'which has',count_max$Museum_Count, ' museums, has the most museums.'))
+}
+
+#Creating a function to output minimum values from the dataframe with aggregate data
+museum_group_min <- function(df,col_name) {
+
+  avg_inc_min <- df %>% filter(Average_Income == min(df$Average_Income))
+  tot_inc_min <- df %>% filter(Total_Income == min(df$Total_Income))
+  avg_rev_min <- df %>% filter(Average_Revenue == min(df$Average_Revenue))
+  tot_rev_min <- df %>% filter(Total_Revenue == min(df$Total_Revenue))
+
+  #Calculating the lowest museum count and associated col_name value
+  count_min <- df %>% filter(Museum_Count == min(df$Museum_Count))
+  
+  return (cat('\n\nMuseums with lowest average income:', avg_inc_min[[col_name]], ' lowest total income:', tot_inc_min[[col_name]], '\nlowest average revenue',avg_rev_min[[col_name]], ' lowest total revenue:', tot_rev_min[[col_name]],'\n\n', count_min[[col_name]], 'which has',count_min$Museum_Count, ' museums, has the least museums.'))
+}
+```
+
+## Type
+To understand the museum data better we can group the data by Type and take a look at the average and total Income and Revenue.
+```{r}
+#Grouping by type
+museum_type <- museum_group('Museum.Type')
+
+#Renaming the column
+colnames(museum_type)[which(names(museum_type) == "Museum.Type")] <- "Type"
+
+head(museum_type)
+
+```
+```{r}
+museum_group_max(museum_type,'Type')
+```
+```{r}
+museum_group_min(museum_type,'Type')
+```
+- Science & Technology Museums/Planetariums have the highest average income.
+- Art Museums have the highest total income, average revenue and total revenue. 
+- Historic Preservations have the lowest average income and average revenue, and this museum type has the most museums as well.
+- Children's Museums have the lowest total income and total revenue.
+- Natural History Museums have the least museums among all museum types.
+
+```{r}
+#plotting bar graph for museum type and number of Museums
+ggplot(data=museum_type,aes(x=Type,y=Museum_Count, fill=Type)) + geom_bar(stat="identity") + labs(title="Number of Museums by Type")+ theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+```
+
+### Total Income by Museum Type
+```{r}
+#Creating a Pie Chart 
+type_income = museum_type$Total_Income
+type_labels = museum_type$Type
+
+# Plot the chart.
+pie(type_income, labels=type_labels, main = "Distribution of Total Income by Museum Type",col = rainbow(length(type_income)))
+```
+As seen above Art Museums make up the biggest portion of all museum income in the US, while Children's Museums make up the smallest portion of all museum income in the US. We can check to see if a similar pattern is observed with revenue.
+
+### Total Revenue by Museum Type
+```{r}
+#Creating a Pie Chart 
+type_revenue = museum_type$Total_Revenue
+type_labels = museum_type$Type
+
+# Plot the chart.
+pie(type_revenue, labels=type_labels, main = "Distribution of Total Revenue by Museum Type",col = rainbow(length(type_revenue)))
+```
+Once again Art Museums make up the biggest portion of all museum revenue in the US, while Children's Museums make up the smallest portion of all museum revenue in the US. For the museum data the revenue always lower than income so we could assume that the revenue is what the museum is left over with after deducting taxes and other expenses. 
+
+- It it noteworthy that the Art Museum's revenue makes up a bigger portion of all museum revenue.
+- The Art Museum's is retaining a larger portion of its income as opposed to the other museum types.
+- If this were not the case then we would expect the distribution to be similar to that of income.
+
+## City
+We can group the data by City as well and take a look at the average and total Income and Revenue.
+
+```{r}
+#Grouping by city
+museum_city <- museum_group('City..Administrative.Location.')
+
+#Renaming the column
+colnames(museum_city)[which(names(museum_city) == "City..Administrative.Location.")] <- "City"
+
+head(museum_city)
+```
+```{r}
+museum_group_max(museum_city,'City')
+```
+- Amado has the highest average income, average revenue and total income.
+- Washington has the highest total revenue. 
+- New York City has the most museums.
+
+### Number of Museums vs. Total Income
+```{r}
+#plotting scatter plot for number of museums vs. total income from museums in each city
+ggplot(data=museum_city,aes(x=Museum_Count,y=Total_Income)) + geom_point() + labs(title="City Level Data: Number of Museums vs. Total Income") + gghighlight(Total_Income > 10000000000)
+
+```
+As seen above the vast majority of cities make under 10 Billion in income from museums. 
+
+## State
+We can group the data by State as well and take a look at the average and total Income and Revenue.
+```{r}
+#Grouping by state
+museum_state <- museum_group('State..Administrative.Location.')
+
+#Renaming the column
+colnames(museum_state)[which(names(museum_state) == "State..Administrative.Location.")] <- "State"
+
+head(museum_state)
+```
+```{r}
+museum_group_max(museum_state,'State')
+```
+
+```{r}
+museum_group_min(museum_state,'State')
+```
+- Arizona (AZ) has the highest average and total income.
+- Washington DC (DC) has the highest average revenue.
+- California (CA) has the highest total revenue and and also the most museums.
+- North Dakota (ND) has the lowest average and total income and revenue.
+- Utah (UT) has the least museums.
+
+### Number of Museums vs. Total Income
+```{r}
+#plotting scatter plot for number of museums vs. total income from museums in each state
+ggplot(data=museum_state,aes(x=Museum_Count,y=Total_Income)) + geom_point() + labs(title="State Level Data: Number of Museums vs. Total Income") + gghighlight(Total_Income > 10000000000)
+
+```
+Similar to the city level data, the majority of states make under 10 Billion in income from museums.
