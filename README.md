@@ -4,4 +4,4 @@ Analysis of a public United States Museums dataset from Kaggle: https://www.kagg
 The museum dataset is a list of museums and related organizations in the United States. The data file includes basic information about each organization (name, address, phone, website, and revenue) plus the museum type or discipline. 
 
 #### See this analysis on Kaggle:
-https://www.kaggle.com/priankravichandar/museums-data-analysis#Summary-of-Data-Analysis
+https://www.kaggle.com/priankravichandar/museums-data-analysis
